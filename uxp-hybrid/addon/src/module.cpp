@@ -1,38 +1,18 @@
 /************************************************************************
- * ColorPalette UXP Hybrid addon — 屏幕实时取色采样器（按需采样版）
- * getLatest() 每次被 JS 调用时当场读光标处屏幕像素 + 修饰键，
- * 由面板的 requestAnimationFrame 每帧调用 = 实时。无后台线程。
+ * ColorPalette UXP Hybrid addon — 屏幕实时取色采样器
+ *   getLatest() : 当场读光标处屏幕像素 + 各修饰键 + PS 是否前台（psActive 缓存）。
+ *   breakMenu() : 注入无害保留键，打破 Windows 的 Alt 菜单激活（防 menu mode 卡顿）。
+ * 由面板 setInterval 每帧调用。无后台线程。
  *************************************************************************/
 #include <windows.h>
 
-#include <atomic>
 #include <cstdio>
-#include <fstream>
 #include <string>
 #include <cctype>
 
 #include "UxpAddon.h"
 
 namespace {
-
-std::atomic<long long> g_calls{0};
-
-void LogLine(const char* msg) {
-    try {
-        char tmp[MAX_PATH];
-        DWORD n = GetTempPathA(MAX_PATH, tmp);
-        std::string path = (n ? std::string(tmp) : std::string("")) + "colorpalette-uxp-addon.log";
-        std::ofstream f(path, std::ios::app);
-        if (f) {
-            SYSTEMTIME st;
-            GetLocalTime(&st);
-            char ts[32];
-            sprintf_s(ts, "%02d:%02d:%02d.%03d ", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-            f << ts << msg << "\n";
-        }
-    } catch (...) {
-    }
-}
 
 // 当场采样：光标坐标 + 该点屏幕像素 + 各按键状态 + PS 是否前台。
 // 返回 "x,y,r,g,b,down,alt,shift,esc,ctrl,tab,psActive"
@@ -122,7 +102,6 @@ addon_value Init(addon_env env, addon_value exports, const addon_apis& api) {
     api.uxp_addon_set_named_property(env, exports, "getLatest", fn);
     api.uxp_addon_create_function(env, NULL, 0, BreakMenu, NULL, &fn);
     api.uxp_addon_set_named_property(env, exports, "breakMenu", fn);
-    LogLine("addon Init v3: registered start/stop/getLatest/breakMenu (psActive cached + anti Alt-menu)");
     return exports;
 }
 
