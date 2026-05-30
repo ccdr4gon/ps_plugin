@@ -1,0 +1,34 @@
+1. 安装对应系统的插件：
+
+Win系统: install_coolorus_2_win.exe
+
+Mac系统: install_coolorus_2_mac.pkg
+
+注意：如果安装时提示是否关闭debug mode，请选择“否”
+
+
+2. 复制（拷贝）Patch 文件夹中的“Coolorus 2”到以下目录替换：
+
+Win系统：C:\Users\你的用户名\AppData\Roaming
+
+Mac系统：~/Library/Application Support/
+
+提示：在访达菜单上依次打开“前往->前往文件夹”，然后输入“~/Library/Application Support/”，回车，就可以快速定位到目录。
+
+3. 开启 debug mode，具体操作请看链接里的文章：https://jpsmile.com/aescripts-aeplugins-zxp-installer/
+
+4. 完成。Enjoy~
+
+
+特别强调：分享的Coolorus扩展脚本（插件）没有任何问题，本人在PS2024及2025上安装测试都一切正常。如果你不能用，说明你没有按照安装方法正确安装及破解。
+
+我没有在B站(或者抖音)分享这个扩展脚本，如果你是在B站（抖音）下载的，有任何安装问题请直接问那个分享的人，不要加我的群来问，这里没有免费客服，谢谢。、
+
+=======================================
+更多内容请访问:https://jpsmile.com/
+欢迎加入 QQ 群交流:
+1 群：511483902（可能已满）
+2 群：667026971（可能已满）
+3 群：68791769（可能已满）
+4 群：65206573（可能已满）
+5 群：172251087（可能已满）

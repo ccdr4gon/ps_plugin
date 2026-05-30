@@ -1,0 +1,22 @@
+{
+  "id": "com.ccd.colorpalette.uxptest",
+  "name": "UXP 测试",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 4,
+  "host": {
+    "app": "PS",
+    "minVersion": "23.0.0"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "uxpTestPanel",
+      "label": { "default": "UXP 测试" },
+      "minimumSize": { "width": 180, "height": 180 },
+      "maximumSize": { "width": 600, "height": 800 },
+      "preferredDockedSize": { "width": 240, "height": 240 },
+      "preferredFloatingSize": { "width": 240, "height": 240 }
+    }
+  ]
+}

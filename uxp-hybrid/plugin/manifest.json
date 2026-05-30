@@ -1,0 +1,32 @@
+{
+  "id": "com.ccd.colorpalette.hybrid",
+  "name": "调色盘 Hybrid",
+  "version": "1.0.1",
+  "main": "index.html",
+  "manifestVersion": 6,
+  "host": {
+    "app": "PS",
+    "minVersion": "24.2.0",
+    "data": {
+      "apiVersion": 2
+    }
+  },
+  "addon": {
+    "name": "ColorPaletteSampler6.uxpaddon"
+  },
+  "requiredPermissions": {
+    "enableAddon": true,
+    "localFileSystem": "plugin"
+  },
+  "entryPoints": [
+    {
+      "type": "panel",
+      "id": "colorPaletteHybridPanel",
+      "label": { "default": "调色盘 Hybrid" },
+      "minimumSize": { "width": 230, "height": 420 },
+      "maximumSize": { "width": 600, "height": 2400 },
+      "preferredDockedSize": { "width": 240, "height": 680 },
+      "preferredFloatingSize": { "width": 240, "height": 680 }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "com.ccd.colorpalette",
+  "name": "调色盘 Color Palette",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 4,
+  "host": {
+    "app": "PS",
+    "minVersion": "23.0.0"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "colorPalettePanel",
+      "label": { "default": "调色盘" },
+      "minimumSize": { "width": 230, "height": 420 },
+      "maximumSize": { "width": 600, "height": 2400 },
+      "preferredDockedSize": { "width": 240, "height": 660 },
+      "preferredFloatingSize": { "width": 240, "height": 660 }
+    }
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "plugin"
+  }
+}
