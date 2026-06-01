@@ -303,7 +303,7 @@ let armed = false;          // 是否已通过「双击 Alt」激活吸色（防
 let prevAlt = false;        // 上一帧 Alt 状态（检测按下上升沿）
 let lastAltDownFrame = -999;// 上次 Alt 按下瞬间的帧号
 let altFalse = 0;           // Alt 连续松开的帧数（去抖：防 GetAsyncKeyState 抖动一帧导致 armed 误清零）
-const DOUBLE_FRAMES = 12;   // 双击窗口（~200ms @16ms/帧）：两次 Alt 按下间隔 ≤ 此值算双击
+const DOUBLE_FRAMES = 18;   // 双击窗口（~300ms @16ms/帧）：两次 Alt 按下间隔 ≤ 此值算双击
 let frame = 0;
 let needPush = false, lastPushFrame = -99;   // 待写前景色 + 上次写的帧（节流写 PS，防频繁 executeAsModal 阻塞）
 let lastX = -1, lastY = -1;   // 上一帧光标位置（判断鼠标是否在移动）
