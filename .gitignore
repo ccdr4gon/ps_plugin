@@ -1,0 +1,5 @@
+# C++ addon 编译中间产物（只提交部署到 plugin/win/x64/ 的 .uxpaddon）
+/uxp-hybrid/addon/*.obj
+/uxp-hybrid/addon/*.lib
+/uxp-hybrid/addon/*.exp
+/uxp-hybrid/addon/ColorPaletteSampler.uxpaddon

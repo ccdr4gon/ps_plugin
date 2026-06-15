@@ -69,7 +69,7 @@ uxp-hybrid/
 │   ├── manifest.json             # 清单（addon.name 指向当前 SamplerN）
 │   ├── index.html / styles.css / main.js
 │   ├── assets/                   # hue-ring.png（色环）、checker.png（棋盘）
-│   └── win/x64/                  # ColorPaletteSampler7.uxpaddon（原生模块）
+│   └── win/x64/                  # ColorPaletteSampler9.uxpaddon（原生模块）
 ├── addon/
 │   ├── src/module.cpp            # C++ 源：getLatest() / breakMenu()
 │   └── build.bat                 # 编译脚本（cl.exe）

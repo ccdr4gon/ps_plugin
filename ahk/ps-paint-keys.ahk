@@ -36,6 +36,8 @@
 ; =====================================================================
 
 ; ---- F1 总开关：暂停/恢复（全局有效，与 PS 是否前台无关）----
+; #SuspendExempt：让 F1 自身豁免于 Suspend，否则暂停后 F1 也被冻住、无法再按 F1 恢复。
+#SuspendExempt true
 F1::
 {
     Suspend -1                                  ; 切换暂停状态
@@ -44,6 +46,7 @@ F1::
     else
         TrayTip "PS 键位：已启用", "按 F1 暂停", 1
 }
+#SuspendExempt false                            ; 恢复默认：后面的热键正常受 Suspend 管控
 
 #HotIf WinActive("ahk_exe Photoshop.exe")
 
