@@ -20,9 +20,10 @@ class GenRing {
     static double Clamp01(double v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
     static void Main() {
-        int S = 2048;
-        double c = S / 2.0, Ro = S * 0.475, Ri = S * 0.44;   // 环带：外径0.475 内径0.44
-        double aa = 2.5;                                      // 边缘抗锯齿过渡宽度（像素，越大越柔）
+        int S = 1024;                                         // 1024 足够（显示 220~550px，降采样平滑）
+        double c = S / 2.0, Ro = S * 0.475, Ri = S * 0.44;   // 环带：外径0.475 内径0.44（与面板游标几何一致）
+        double aa = 4.5;                                      // 边缘抗锯齿过渡宽（px@1024≈1px@显示）；够宽以抗 bilinear 降采样欠采样
+        double margin = aa + 2;
         var bmp = new Bitmap(S, S, PixelFormat.Format32bppArgb);
         var data = bmp.LockBits(new Rectangle(0, 0, S, S), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         int stride = data.Stride;
@@ -30,15 +31,17 @@ class GenRing {
         for (int y = 0; y < S; y++) {
             for (int x = 0; x < S; x++) {
                 double dx = x + 0.5 - c, dy = y + 0.5 - c, d = Math.Sqrt(dx * dx + dy * dy);
-                double aOut = Clamp01((Ro - d) / aa + 0.5);
-                double aIn = Clamp01((d - Ri) / aa + 0.5);
-                double cover = aOut * aIn;
                 int idx = y * stride + x * 4;
-                if (cover > 0.003) {
+                // 关键：在「环带 ± margin」范围内都写环色（即便 alpha≈0），让透明边缘像素 RGB=环色，
+                // 缩放时 bilinear 不会把黑底(0,0,0)混进来 → 无暗边；范围外才是纯透明黑。
+                if (d >= Ri - margin && d <= Ro + margin) {
+                    double aOut = Clamp01((Ro - d) / aa + 0.5);
+                    double aIn = Clamp01((d - Ri) / aa + 0.5);
+                    double cover = aOut * aIn;
                     double ang = Math.Atan2(dy, dx) * 180 / Math.PI;
                     double hue = (ang + 90 + 360) % 360;
                     int R, G, B; Hsv(hue, out R, out G, out B);
-                    byte a = (byte)Math.Round(cover * 255);
+                    byte a = (byte)Math.Round(Clamp01(cover) * 255);
                     buf[idx + 0] = (byte)B; buf[idx + 1] = (byte)G; buf[idx + 2] = (byte)R; buf[idx + 3] = a;
                 } else {
                     buf[idx + 0] = 0; buf[idx + 1] = 0; buf[idx + 2] = 0; buf[idx + 3] = 0;

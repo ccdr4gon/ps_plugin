@@ -81,8 +81,9 @@ const FR = { rOuter: 0.475, rInner: 0.44, sqSize: 0.62 };
 const G = { S: 220, cx: 110, cy: 110, rOuter: 104, rInner: 97, rMid: 100, sqSize: 120, sqLeft: 50, sqTop: 50 };
 
 function computeGeom() {
-  // 用父容器宽 × 0.92 算整数边长，并固定 #wheel 为整数尺寸（消除亚像素导致的 1px 抖动）
-  const pw = (picker.parentElement || picker).getBoundingClientRect().width;
+  // 用「面板视口宽」(documentElement.clientWidth) × 0.92 算整数边长，固定 #wheel 为整数尺寸。
+  // 关键：视口宽不随 .app 滚动条出现/消失而变 → 色环尺寸恒定，点 +/- 等不改变面板宽的操作不会重算 → 不震动。
+  const pw = document.documentElement.clientWidth || (picker.parentElement || picker).getBoundingClientRect().width;
   let S = Math.round(pw * 0.92);
   if (!S || S < 80) S = 220;
   picker.style.width = S + "px";
@@ -399,14 +400,24 @@ function sampleLoop() {
     else if (++altFalse >= 10) { armed = false; lastAltDownFrame = -999; }
     prevAlt = alt;
 
-    // 取色态：已三击激活(armed) + 按住 Alt + PS 在最前(#1) + 没点左键 + 没按 Ctrl/Shift/Tab(#3) + 没按 Esc。
-    // 关键：不含 moved —— 鼠标暂停≠结束取色（Alt 还按着就还是取色态），
-    // 否则走走停停时 picking 反复复位、每次复位狂调全量 render（实测 38/s）→ 卡。
-    const pickActive = armed && psActive && !down && !ctrl && !shift && !tab && !esc && !drag;
+    // —— 打破 Alt 菜单模式：手势全程（第 1 次 Alt 起）只要 Alt 按着、没点左键、PS 在前台，就每帧注入无害键 ——
+    // 关键修复：以前只在 armed(三击完成)后才注入 → 等待第 2/3 次 Alt 的整段，每次松 Alt 都激活 Windows 菜单模式、
+    //   节流面板 → 第一次取色卡；armed 后才流畅。现在从第一次 Alt 起就注入，菜单模式不再激活 → 等待期不再卡。
+    // !down：避让 Alt+左键（PS 原生吸管），防注入键干扰其拖拽（鼠标点击本身也会取消菜单模式，无需注入）。
+    if (alt && !down && psActive && sampler.breakMenu && (armed || picking || tapCount > 0 || pendingRead)) {
+      try { sampler.breakMenu(); } catch (e) {}
+    }
+
+    // 取色态：已三击激活(armed) + 当前确实按住 Alt + PS 最前(#1) + 没点左键 + 没按 Ctrl/Shift/Tab(#3) + 没按 Esc。
+    // 关键修复：直接查 alt —— 松开 Alt 当帧 pickActive 即 false → 立刻停止取色。
+    //   （以前不查 alt、靠 armed 当代理，而 armed 有 10 帧≈160ms 释放去抖 → 松手后还取色零点几秒。）
+    //   抖动安全：GetAsyncKeyState 偶发抖一帧 alt=false 不会误结束，picking 由下方 pickFalse>=12 去抖兜底。
+    // 不含 moved —— 鼠标暂停≠结束取色（Alt 还按着就还是取色态），否则走走停停反复复位狂调 render → 卡。
+    const pickActive = armed && alt && psActive && !down && !ctrl && !shift && !tab && !esc && !drag;
 
     if (pickActive) {               // 取色态：三击 Alt 激活后，按住第三下划过画布（不点左键）
       picking = true; pickFalse = 0;
-      try { if (sampler.breakMenu) sampler.breakMenu(); } catch (e) {}   // 每帧注入无害键，打破 Alt 菜单激活（防 menu mode 卡顿）；用 if 守卫，旧 addon 无此函数时不报错
+      // breakMenu 已由上方「手势全程」统一注入（armed 时也覆盖），此处不再重复调用。
       if (valid && moved && (r !== state.r || g !== state.g || b !== state.b)) {   // 仅「像素有效 + 鼠标在动 + 颜色变」才更新（越界帧保持上次色，不闪白）
         state.r = r; state.g = g; state.b = b; syncHsvFromRgb();
         if (frame - lastRenderFrame >= 4) {        // 节流 paint：取色看色分布 ~15fps 足够，降 paint 量防 UXP 渲染层积压卡顿
@@ -441,7 +452,7 @@ function rafLoop() {
   frame++;
   // 面板尺寸变化 → 重算色环几何（UXP 可能不发 resize 事件，这里轮询兜底）
   if (frame % 10 === 0) {
-    const pw = (picker.parentElement || picker).getBoundingClientRect().width;
+    const pw = document.documentElement.clientWidth || (picker.parentElement || picker).getBoundingClientRect().width;
     const w = Math.round(pw * 0.92);
     // 防抖：宽度需「连续两次轮询一致」才重算/缩放。挡掉点击 +/- 触发 render 后立即量宽读到的
     // UXP 重排中途过渡值、以及滚动条临界翻转造成的瞬时宽——这些只持续一两帧、两次不一致 → 不触发 → 不闪。
@@ -452,10 +463,10 @@ function rafLoop() {
     }
     _lastGeomW = w;
   }
-  // 取色态(armed/picking)每帧读屏；空闲时每 4 帧读一次（只为检测 Alt 连击，降低常驻同步读屏的全局卡顿）
-  // 注：pendingRead 故意不进此门控——否则单击 Alt 按住期间会每帧 getLatest()→GetPixel（正是要避免的卡），
-  //     且会让去抖(c)早于窗口过期(b)清状态。读前景色靠 (b) 在窗口过期后于每4帧采样里触发，延迟≤~50ms 无感。
-  if (sampler) { if (armed || picking || (frame % 4 === 0)) sampleLoop(); }
+  // 手势全程(tapCount>0 / pendingRead / armed / picking)每帧跑采样；纯空闲每 4 帧。
+  // getLatest 现在只 lock+copy(读屏在后台线程)，每帧跑也很便宜——这是关键：从第一次 Alt 起每帧跑，
+  // 才能让上面「手势全程 breakMenu」即时注入、打破等待第2/3次 Alt 期间的菜单模式节流。
+  if (sampler) { if (armed || picking || tapCount > 0 || pendingRead || (frame % 4 === 0)) sampleLoop(); }
   else pollForeground();       // 无 addon：退回镜像前景色
 }
 

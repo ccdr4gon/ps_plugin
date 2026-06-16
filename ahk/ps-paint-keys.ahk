@@ -11,12 +11,13 @@
 ;    A          旋转视图工具  (发 PS 的 R；切过去后鼠标拖着转，转完按 Q 回画笔)
 ;    V          魔棒          (发 PS 的 W)
 ;    Z          直线/形状工具 (发 PS 的 U)
-;    C          模糊工具      (发 PS 的 K —— 模糊工具无默认快捷键，需先在 PS 给它配为 K)
+;    C          涂抹工具(默认模糊笔刷) (发 PS 的 K —— 涂抹工具无默认快捷键，需先在 PS 给它配为 K)
 ;    W          放大          (Ctrl +)
 ;    S          缩小          (Ctrl -)
 ;    T          水平翻转视图  (发 F2 —— 见下方一次性配置)
 ;    Ctrl+F     前景色填充选区(发 PS 的 Alt+Delete；无选区则填整层)
 ;    Ctrl+Alt+左键拖动  改笔刷大小 (翻译成 PS 硬编码的 Alt+右键拖)
+;    Ctrl+左键拖动      已禁用（PS 默认会移动/复制内容，极易误触；移动改用 Ctrl+T 自由变换）。Ctrl+左键「单击」保留。
 ;
 ;    F1         ★总开关：暂停/恢复本脚本（用文字工具打字前按一下暂停，画完再按恢复）
 ;
@@ -57,7 +58,7 @@ r::Send "l"          ; 自由套索 (L)
 a::Send "r"          ; 旋转视图工具 (R)
 v::Send "w"          ; 魔棒 (W)
 z::Send "u"          ; 直线/形状工具 (U)
-c::Send "k"          ; 模糊工具（PS 无默认快捷键，已在 PS 里手动给模糊工具配为 K，此处转发 K）
+c::Send "k"          ; 涂抹工具（用作默认模糊笔刷；涂抹无默认快捷键，已在 PS 里给涂抹工具配为 K，此处转发 K）
 
 ; —— 缩放 ——
 w::Send "^{=}"       ; 放大  (Ctrl +)
@@ -91,6 +92,31 @@ t::Send "{F2}"
     Hotkey "~*LButton Up", "Off"            ; 注销临时热键
 }
 #HotIf   ; ===== Ctrl+Alt 条件作用域结束 =====
+
+; —— 禁止 Ctrl+左键「拖动」移动/复制内容（极易误触，且移动用 Ctrl+T 自由变换即可）——
+;    只拦「拖」：按下后鼠标移动超阈值 = 拖 → 整段吞掉（不透传给 PS）→ 内容不移动。
+;    「单击」(按下没怎么动就松开) 照常补发为 Ctrl+左键单击 → 保留 Ctrl+点图层缩览图载入选区等功能。
+;    not Alt：让位给上面的 Ctrl+Alt 改笔刷大小，两者互斥。
+#HotIf WinActive("ahk_exe Photoshop.exe") and GetKeyState("Ctrl","P") and not GetKeyState("Alt","P")
+*LButton::
+{
+    MouseGetPos(&x0, &y0)
+    isDrag := false
+    while GetKeyState("LButton", "P") {        ; 按住期间监测是否变成拖动
+        MouseGetPos(&x, &y)
+        if (Abs(x - x0) > 4 or Abs(y - y0) > 4) {
+            isDrag := true
+            break
+        }
+        Sleep 5
+    }
+    if (isDrag) {
+        KeyWait "LButton"                       ; 是拖动 → 吞掉整个拖动（什么都不发）→ PS 收不到按键，不移动
+        return
+    }
+    Send "{Blind}{LButton}"                     ; 是单击 → 补发一次 Ctrl+左键单击（Ctrl 物理仍按着，{Blind} 保留修饰键）
+}
+#HotIf   ; ===== Ctrl(无Alt) 条件作用域结束 =====
 
 BrushLUp(*) {                               ; 左键抬起事件 → 置位（global 才能写入外部变量）
     global _brushLUp := true
