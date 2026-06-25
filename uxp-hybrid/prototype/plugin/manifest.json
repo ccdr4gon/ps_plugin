@@ -1,0 +1,32 @@
+{
+  "id": "com.ccd.colorpalette.oklch",
+  "name": "调色盘 Hybrid · OKLCH 原型",
+  "version": "1.0.1",
+  "main": "index.html",
+  "manifestVersion": 6,
+  "host": {
+    "app": "PS",
+    "minVersion": "24.2.0",
+    "data": {
+      "apiVersion": 2
+    }
+  },
+  "addon": {
+    "name": "ColorPaletteSampler9.uxpaddon"
+  },
+  "requiredPermissions": {
+    "enableAddon": true,
+    "localFileSystem": "plugin"
+  },
+  "entryPoints": [
+    {
+      "type": "panel",
+      "id": "colorPaletteOklchPanel",
+      "label": { "default": "调色盘 OKLCH 原型" },
+      "minimumSize": { "width": 230, "height": 420 },
+      "maximumSize": { "width": 600, "height": 2400 },
+      "preferredDockedSize": { "width": 240, "height": 680 },
+      "preferredFloatingSize": { "width": 240, "height": 680 }
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- 顶部工具条 -->
+    <div class="toolbar">
+      <span class="tb-icon menu-icon" title="菜单">&#9776;</span>
+      <span class="tb-sep"></span>
+      <span class="tb-icon active" title="色环">&#9673;</span>
+      <span class="tb-icon" title="网格">&#9638;</span>
+      <span class="tb-icon" title="三角取色器">&#9650;</span>
+      <span class="tb-icon" title="方形取色器">&#9645;</span>
+      <span class="tb-icon" title="圆形取色器">&#9711;</span>
+      <span class="tb-icon" title="三角取色器">&#9650;</span>
+      <span class="toolbar-spacer"></span>
+      <span class="sampler-light" id="samplerLight" title="取色采样器"></span>
+    </div>
+
+    <!-- 标签页 -->
+    <div class="tabbar">
+      <span class="tab active" data-view="classic">色环</span>
+      <span class="tab" data-view="oklch">OKLCH</span>
+    </div>
+
+    <!-- ============ 视图：色环 ============ -->
+    <div id="viewClassic">
+
+    <!-- 色环 + 方形取色器 -->
+    <div class="wheel-section">
+      <div id="wheel" class="color-picker">
+        <img class="hue-ring" id="hueRing" src="assets/hue-ring.png" />
+        <div class="sv-square" id="svSquare"></div>
+        <span class="picker-marker hue-marker" id="hueMarker"></span>
+        <span class="picker-marker sv-marker" id="svMarker"></span>
+      </div>
+
+      <div class="wheel-footer">
+        <div class="fg-col">
+          <div class="fgbg">
+            <div class="sw-bg" id="swBg" title="背景色 / 白"></div>
+            <div class="sw-fg" id="swFg" title="前景色"></div>
+          </div>
+        </div>
+        <div class="readout-col">
+          <div class="readout" id="readout"></div>
+          <div class="hexout" id="hexout">#FFFFFF</div>
+          <button class="play" id="applyBtn" title="应用到前景色">&#9654;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 颜色滑块 -->
+    <div class="sliders-section">
+      <div class="section-header"><span class="tb-icon sh-icon">&#9776;</span>颜色滑块</div>
+
+      <div class="slider-group">
+        <div class="group-tag">RGB</div>
+        <div class="group-rows" id="rowsRgb"></div>
+      </div>
+
+      <div class="slider-group">
+        <div class="group-tag">HSV</div>
+        <div class="group-rows" id="rowsHsv"></div>
+      </div>
+    </div>
+
+    </div><!-- /viewClassic -->
+
+    <!-- ============ 视图：OKLCH ============ -->
+    <div id="viewOklch" class="view-oklch" hidden>
+
+      <!-- 顶部：色域选择 + 预览 + 读数 + 应用 -->
+      <div class="okl-top">
+        <div class="okl-swatch" id="oklSwatch" title="应用到前景色"></div>
+        <div class="okl-info">
+          <div class="okl-css" id="oklCss">oklch(70% 0.1 65)</div>
+          <div class="okl-sub">
+            <span class="okl-hex" id="oklHex">#FFFFFF</span>
+            <span class="okl-gamut" id="oklGamut">在 sRGB 内</span>
+          </div>
+        </div>
+        <div class="okl-gamut-seg" id="oklGamutSeg">
+          <span class="okl-seg active" data-gamut="srgb">sRGB</span>
+          <span class="okl-seg" data-gamut="p3">P3</span>
+        </div>
+        <button class="play" id="oklApply" title="应用到前景色">&#9654;</button>
+      </div>
+
+      <!-- 三张卡片：Lightness / Chroma / Hue（由 JS 生成） -->
+      <div id="oklCards"></div>
+
+    </div><!-- /viewOklch -->
+
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

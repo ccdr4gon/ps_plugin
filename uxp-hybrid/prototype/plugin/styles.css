@@ -1,0 +1,533 @@
+/* =========================================================
+ *  调色盘 Hybrid — 样式
+ *  深色 PS 原生质感 · rem 相对单位 · 根字号驱动缩放
+ * ========================================================= */
+
+:root {
+  --bg:        #383838;        /* 面板底色 */
+  --bg-bar:    #2c2c2c;        /* 工具条 / 分组头 */
+  --bg-sunken: #232323;        /* 凹陷字段 */
+  --bg-field:  #2a2a2a;
+  --line:      #1e1e1e;        /* 暗描边 */
+  --line-soft: #444444;        /* 亮描边 */
+  --txt:       #d8d8d8;
+  --txt-dim:   #9a9a9a;
+  --txt-faint: #6c6c6c;
+  --accent:    #4a8fe0;        /* 选中蓝 */
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-size: 16px;          /* rem 基准；JS 按面板实际宽度覆写根字号 */
+  background: var(--bg);
+  color: var(--txt);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 210px;
+  /* scroll(非 auto)：永久预留滚动条槽 → 内容宽恒定，不随内容高度临界翻转。
+     否则点 +/- 时滚动条瞬时出现/消失 → .wheel-section 变宽窄 → 居中的 #wheel 横向位移+缩放（震动）。 */
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+/* ---------- 顶部工具条 ---------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  height: 2.125rem;
+  min-height: 2.125rem;
+  padding: 0 0.5625rem;
+  background: var(--bg-bar);
+  border-bottom: 1px solid var(--line);
+}
+.tb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 0.25rem;
+  color: var(--txt-dim);
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.tb-icon:hover { color: var(--txt); background: rgba(255, 255, 255, 0.06); }
+.menu-icon { font-size: 0.8125rem; }
+.tb-icon.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.10);
+}
+.tb-sep {
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.1875rem;
+  background: var(--line-soft);
+  opacity: 0.6;
+}
+.toolbar-spacer { flex: 1; }
+.sampler-light {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #6f6f6f;
+  box-shadow: 0 0 0 1px var(--line), 0 0 0 0 rgba(85, 216, 133, 0);
+}
+.sampler-light.ready  { background: #74a56d; }
+.sampler-light.active { background: #55d885; box-shadow: 0 0 0 1px var(--line), 0 0 0.375rem rgba(85, 216, 133, 0.9); }
+.sampler-light.error  { background: #c96666; }
+
+/* ---------- 色环区 ---------- */
+.wheel-section {
+  flex-shrink: 0;
+  padding: 0.875rem 0 0.5rem;
+}
+#wheel {
+  display: block;
+  position: relative;
+  width: 92%;
+  margin: 0 auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+/* 色环：高清 PNG 降采样显示，始终平滑不锯齿 */
+.hue-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sv-square {
+  position: absolute;
+  left: 50px;
+  top: 50px;
+  width: 120px;
+  height: 120px;
+  background-image:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0), #000000),
+    linear-gradient(to right, #ffffff, rgba(255, 255, 255, 0));
+}
+.picker-marker {
+  position: absolute;
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-left: -0.4375rem;
+  margin-top: -0.4375rem;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 1px 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.sv-marker {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-left: -0.375rem;
+  margin-top: -0.375rem;
+}
+
+.wheel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.625rem;
+  padding: 0 0.5rem;
+}
+
+/* 前景/背景色块（重叠） */
+.fg-col { display: flex; flex-direction: column; gap: 0.25rem; }
+.fgbg { position: relative; width: 2.875rem; height: 2.875rem; }
+.fgbg .sw-bg,
+.fgbg .sw-fg {
+  position: absolute;
+  width: 1.8125rem;
+  height: 1.8125rem;
+  border: 1px solid var(--line);
+  border-radius: 0.125rem;
+  cursor: pointer;
+}
+.fgbg .sw-bg { right: 0; bottom: 0; background: #ffffff; }
+.fgbg .sw-fg {
+  left: 0; top: 0; z-index: 1;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* HSV / HEX 读数 + 应用按钮 */
+.readout-col {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.readout {
+  font-size: 0.8125rem;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.readout .rk { color: var(--txt-faint); margin-right: 0.125rem; }
+.readout .rv { display: inline-block; min-width: 1.625rem; color: var(--txt); margin-right: 0.5rem; }
+.readout .rv:last-child { margin-right: 0; }
+.hexout {
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  font-size: 0.6875rem;
+  color: var(--txt-dim);
+  letter-spacing: 0.5px;
+}
+.play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--line-soft);
+  background: #454545;
+  color: #e0e0e0;
+  font-size: 0.5625rem;
+  cursor: pointer;
+}
+.play:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- 颜色滑块区 ---------- */
+.sliders-section {
+  flex-shrink: 0;
+  background: #343434;
+  border-top: 1px solid var(--line);
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  background: var(--bg-bar);
+  color: var(--txt);
+  font-size: 0.7813rem;
+}
+.sh-icon { width: auto; height: auto; cursor: default; font-size: 0.8125rem; }
+.sh-icon:hover { background: none; color: var(--txt-dim); }
+
+.slider-group { display: flex; flex-direction: column; padding: 0 0.6875rem; }
+.group-tag {
+  color: var(--txt-faint);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  margin: 0.5rem 0 0.1875rem;
+}
+.group-rows { display: flex; flex-direction: column; gap: 0.125rem; }
+
+/* 单行滑块：字母 | 渐变轨道 | 数值 + 步进 */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  height: 1.625rem;
+}
+.slider-label {
+  width: 0.8125rem;
+  flex-shrink: 0;
+  color: var(--txt-dim);
+  text-align: center;
+  font-size: 0.7188rem;
+  font-weight: 600;
+}
+.slider-track {
+  position: relative;
+  flex: 1;
+  height: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4375rem;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+/* 三角游标：UXP 不渲染 CSS border 三角，改用 ▲ 字形（尖端朝上指向轨道） */
+.slider-thumb {
+  position: absolute;
+  bottom: -0.625rem;
+  margin-left: -0.3125rem;
+  width: 0.625rem;
+  text-align: center;
+  color: #f0f0f0;
+  font-size: 0.625rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* 数值字段 + 步进器：紧凑成一个右侧控件组 */
+.value-box {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+/* num-field 退成透明容器（无边框/背景/内边距）——避免与 input 形成"框中框" */
+.num-field {
+  display: flex;
+  flex-shrink: 0;
+}
+/* 单层数字框：边框/背景全做在 input 自己身上 */
+.slider-input {
+  width: 2.5rem;
+  height: 1.5rem;
+  padding: 0 0.25rem;
+  background-color: #454545;
+  border: 1px solid #454545;
+  border-radius: 0.1875rem;
+  color: #e8e8e8;
+  font-size: 0.8125rem;
+  text-align: center;
+}
+.slider-input:focus { outline: none; border-color: var(--accent); }
+.unit {
+  flex-shrink: 0;
+  width: 0.625rem;            /* 固定宽：RGB(空) 与 HSV(%) 占位一致，数字列对齐 */
+  text-align: left;
+  color: var(--txt-faint);
+  font-size: 0.5938rem;
+}
+/* 步进器：横向两枚按钮，紧贴数字框、等高，读作一体 */
+.stepper {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+}
+/* 用 div 做按钮（不用 <button>：UXP 给原生 button 加默认圆形焦点环并裁切内容）*/
+.step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 21px;
+  background: #454545;
+  border: 1px solid #161616;       /* 每枚按钮各自的小方框 */
+  border-radius: 3px;
+  color: #e8e8e8;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 21px;
+  text-align: center;
+  cursor: pointer;
+}
+.step.step-up { margin-left: 1px; }  /* 两按钮间 1px 缝 */
+.step:hover { background: var(--accent); color: #fff; }
+.step:active { background: #3a73b8; }
+
+/* =========================================================
+ *  标签页 + OKLCH 视图
+ * ========================================================= */
+[hidden] { display: none !important; }
+
+/* ---------- 标签条 ---------- */
+.tabbar {
+  display: flex;
+  flex-shrink: 0;
+  background: var(--bg-bar);
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 0.4375rem 0 0.375rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  color: var(--txt-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--txt); background: rgba(255, 255, 255, 0.04); }
+.tab.active { color: #fff; border-bottom-color: var(--accent); }
+
+/* ---------- OKLCH 视图 ---------- */
+.view-oklch {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem 0.6875rem 1.125rem;
+}
+
+/* 顶部：色域段控件 + 预览 + 读数 + 应用 */
+.okl-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.okl-swatch {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.okl-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.okl-css {
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  font-size: 0.6875rem;
+  color: var(--txt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.okl-sub { display: flex; align-items: center; gap: 0.4375rem; white-space: nowrap; }
+.okl-hex {
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  font-size: 0.625rem;
+  color: var(--txt-dim);
+}
+.okl-gamut { font-size: 0.5938rem; color: #82cf95; }
+.okl-gamut.out { color: #e0a06a; }
+
+.okl-gamut-seg {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+.okl-seg {
+  font-size: 0.625rem;
+  padding: 0.25rem 0.4375rem;
+  color: var(--txt-dim);
+  cursor: pointer;
+  background: var(--bg-sunken);
+}
+.okl-seg + .okl-seg { border-left: 1px solid var(--line); }
+.okl-seg.active { background: var(--accent); color: #fff; }
+
+/* ---------- 单张卡片 ---------- */
+.okl-card {
+  background: var(--bg-bar);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.5625rem 0.625rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+}
+.okl-card-head { display: flex; align-items: center; gap: 0.375rem; }
+.okl-title { flex: 1; font-size: 0.8125rem; font-weight: 700; color: var(--txt); letter-spacing: 0.2px; }
+.okl-chip {
+  font-size: 0.625rem;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  line-height: 1.0625rem;
+  text-align: center;
+  color: var(--txt-dim);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+}
+.okl-num {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+}
+.okl-input {
+  width: 3.25rem;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--txt);
+  font-size: 0.75rem;
+  text-align: right;
+  padding: 0.1875rem 0.375rem;
+  font-family: "Consolas", "SFMono-Regular", monospace;
+}
+.okl-unit { font-size: 0.6875rem; color: var(--txt-dim); width: 0.5rem; }
+
+/* 2D 色域切片图 */
+.okl-chart {
+  position: relative;
+  width: 100%;
+  height: 6rem;
+  background: #1b1b1b;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+/* 不用 inset 简写：UXP 对 inset 支持不可靠 → 容器会塌成 0 尺寸。
+   列改绝对定位(left/width 由 JS 设、每列略宽重叠)，避免 flex 子项亚像素取整在列间留黑缝竖线。 */
+.okl-chart-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+.okl-cross-v {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.55);
+  margin-left: -0.5px; pointer-events: none;
+}
+.okl-cross-h {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.55);
+  margin-bottom: -0.5px; pointer-events: none;
+}
+.okl-dot {
+  position: absolute;
+  width: 0.625rem; height: 0.625rem;
+  margin-left: -0.3125rem; margin-bottom: -0.3125rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.okl-ax {
+  position: absolute;
+  font-size: 0.5625rem;
+  color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.okl-ax-y { left: 0.25rem; top: 0.1875rem; }
+.okl-ax-x { right: 0.25rem; bottom: 0.1875rem; }
+
+/* 渐变滑块 + 菱形游标 */
+.okl-slider { position: relative; height: 1.375rem; }
+.okl-track {
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  transform: translateY(-50%);
+  height: 0.875rem;
+  border-radius: 0.4375rem;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  overflow: hidden;                 /* 裁圆角：内部轨道图按圆角显示 */
+  cursor: pointer;
+}
+.okl-track-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+.okl-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 0.875rem; height: 0.875rem;
+  margin-left: -0.4375rem;
+  background: var(--txt);
+  border: 1.5px solid #1b1b1b;
+  border-radius: 0.125rem;
+  transform: translateY(-50%) rotate(45deg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
