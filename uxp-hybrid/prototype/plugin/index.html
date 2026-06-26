@@ -7,23 +7,9 @@
 <body>
   <div class="app" id="app">
 
-    <!-- 顶部工具条 -->
-    <div class="toolbar">
-      <span class="tb-icon menu-icon" title="菜单">&#9776;</span>
-      <span class="tb-sep"></span>
-      <span class="tb-icon active" title="色环">&#9673;</span>
-      <span class="tb-icon" title="网格">&#9638;</span>
-      <span class="tb-icon" title="三角取色器">&#9650;</span>
-      <span class="tb-icon" title="方形取色器">&#9645;</span>
-      <span class="tb-icon" title="圆形取色器">&#9711;</span>
-      <span class="tb-icon" title="三角取色器">&#9650;</span>
-      <span class="toolbar-spacer"></span>
-      <span class="sampler-light" id="samplerLight" title="取色采样器"></span>
-    </div>
-
     <!-- 标签页 -->
     <div class="tabbar">
-      <span class="tab active" data-view="classic">色环</span>
+      <span class="tab active" data-view="classic">RGB</span>
       <span class="tab" data-view="oklch">OKLCH</span>
     </div>
 
@@ -35,8 +21,11 @@
       <div id="wheel" class="color-picker">
         <img class="hue-ring" id="hueRing" src="assets/hue-ring.png" />
         <div class="sv-square" id="svSquare"></div>
-        <span class="picker-marker hue-marker" id="hueMarker"></span>
-        <span class="picker-marker sv-marker" id="svMarker"></span>
+        <!-- 游标独立覆盖层：拖动时只重绘这层，色环 <img>(独立合成层)不被牵连重栅格化 → 不再抖 -->
+        <div id="wheelFx">
+          <span class="picker-marker hue-marker" id="hueMarker"></span>
+          <span class="picker-marker sv-marker" id="svMarker"></span>
+        </div>
       </div>
 
       <div class="wheel-footer">
@@ -88,7 +77,7 @@
           <span class="okl-seg active" data-gamut="srgb">sRGB</span>
           <span class="okl-seg" data-gamut="p3">P3</span>
         </div>
-        <button class="play" id="oklApply" title="应用到前景色">&#9654;</button>
+        <button class="play okl-lock" id="oklLock" title="点击锁定色域：锁上后无法选超出当前色域的颜色">锁</button>
       </div>
 
       <!-- 三张卡片：Lightness / Chroma / Hue（由 JS 生成） -->

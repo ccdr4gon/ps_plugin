@@ -1,7 +1,7 @@
 {
   "id": "com.ccd.colorpalette.oklch",
   "name": "调色盘 Hybrid · OKLCH 原型",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "main": "index.html",
   "manifestVersion": 6,
   "host": {

@@ -46,17 +46,7 @@ html, body {
   overflow-x: hidden;
 }
 
-/* ---------- 顶部工具条 ---------- */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  height: 2.125rem;
-  min-height: 2.125rem;
-  padding: 0 0.5625rem;
-  background: var(--bg-bar);
-  border-bottom: 1px solid var(--line);
-}
+/* ---------- 图标（分组头 ☰ 等复用） ---------- */
 .tb-icon {
   display: inline-flex;
   align-items: center;
@@ -70,30 +60,6 @@ html, body {
   cursor: pointer;
 }
 .tb-icon:hover { color: var(--txt); background: rgba(255, 255, 255, 0.06); }
-.menu-icon { font-size: 0.8125rem; }
-.tb-icon.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.10);
-}
-.tb-sep {
-  width: 1px;
-  height: 1rem;
-  margin: 0 0.1875rem;
-  background: var(--line-soft);
-  opacity: 0.6;
-}
-.toolbar-spacer { flex: 1; }
-.sampler-light {
-  display: block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: #6f6f6f;
-  box-shadow: 0 0 0 1px var(--line), 0 0 0 0 rgba(85, 216, 133, 0);
-}
-.sampler-light.ready  { background: #74a56d; }
-.sampler-light.active { background: #55d885; box-shadow: 0 0 0 1px var(--line), 0 0 0.375rem rgba(85, 216, 133, 0.9); }
-.sampler-light.error  { background: #c96666; }
 
 /* ---------- 色环区 ---------- */
 .wheel-section {
@@ -108,7 +74,7 @@ html, body {
   touch-action: none;
   cursor: crosshair;
 }
-/* 色环：高清 PNG 降采样显示，始终平滑不锯齿 */
+/* 色环：Imaging 程序化绘制（按面板尺寸生成，PNG 为兜底），降采样始终平滑不锯齿 */
 .hue-ring {
   position: absolute;
   left: 0;
@@ -116,6 +82,17 @@ html, body {
   width: 100%;
   height: 100%;
   pointer-events: none;
+  transform: translateZ(0);        /* 独立合成层：栅格化一次缓存，游标层重绘不再触发色环重栅格（1:1 生成 → 缓存纹理尺寸精确，不会"变大"）*/
+}
+/* 游标独立覆盖层：盖满 #wheel，自成一层；拖动时只此层重绘/重合成，色环 <img> 不参与 → 消除拖动抖动 */
+#wheelFx {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: translateZ(0);
 }
 .sv-square {
   position: absolute;
@@ -130,6 +107,7 @@ html, body {
 .picker-marker {
   position: absolute;
   display: block;
+  left: 0; top: 0;                 /* 基点在原点；实际位置全靠 transform: translate（JS 设置）*/
   width: 0.875rem;
   height: 0.875rem;
   margin-left: -0.4375rem;
@@ -138,6 +116,7 @@ html, body {
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 1px 2px rgba(0, 0, 0, 0.5);
   pointer-events: none;
+  will-change: transform;          /* 自成合成层：用 transform 移动 = 纯 GPU 合成，不重绘色环 → 拖动不抖 */
 }
 .sv-marker {
   width: 0.75rem;
@@ -207,6 +186,10 @@ html, body {
   cursor: pointer;
 }
 .play:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* 色域锁按钮：替代原"应用"键。锁上＝拖动停在当前色域边界，选不出界色。用"锁"字，按钮放大以容纳 */
+.okl-lock { width: 1.75rem; height: 1.75rem; font-size: 0.875rem; line-height: 1; font-weight: 700; }
+.okl-lock.locked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.okl-lock.locked:hover { background: var(--accent); }
 
 /* ---------- 颜色滑块区 ---------- */
 .sliders-section {
@@ -441,22 +424,13 @@ html, body {
   border: 1px solid var(--line);
   border-radius: 0.1875rem;
 }
+/* OKLCH 数字框：与 RGB 同款单层 —— .okl-num 退成透明容器，样式全继承 .slider-input（input 自带 #454545 底/边框），
+   去掉原来的凹陷暗框("中间黑色阴影")；仅加宽以容下 "320"/"0.1234" 等较长值，不再截断。 */
 .okl-num {
-  background: var(--bg-sunken);
-  border: 1px solid var(--line);
-  border-radius: 0.1875rem;
+  display: flex;
+  flex-shrink: 0;
 }
-.okl-input {
-  width: 3.25rem;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--txt);
-  font-size: 0.75rem;
-  text-align: right;
-  padding: 0.1875rem 0.375rem;
-  font-family: "Consolas", "SFMono-Regular", monospace;
-}
+.okl-input { width: 3.75rem; }   /* 唯一覆盖：比 RGB 略宽容纳小数；底色/边框/居中/字号均继承 .slider-input */
 .okl-unit { font-size: 0.6875rem; color: var(--txt-dim); width: 0.5rem; }
 
 /* 2D 色域切片图 */
@@ -473,25 +447,30 @@ html, body {
 }
 /* 不用 inset 简写：UXP 对 inset 支持不可靠 → 容器会塌成 0 尺寸。
    列改绝对定位(left/width 由 JS 设、每列略宽重叠)，避免 flex 子项亚像素取整在列间留黑缝竖线。 */
-.okl-chart-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+/* 图/十字/圆点都独立合成层：十字/圆点用 transform 移动(JS)=纯 GPU 合成，不重绘 → 不再每帧重栅格化 640×240 大图（同色环游标修法）*/
+.okl-chart-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; transform: translateZ(0); }
 .okl-cross-v {
-  position: absolute; top: 0; bottom: 0; width: 0;
+  position: absolute; top: 0; bottom: 0; left: 0; width: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.55);
   margin-left: -0.5px; pointer-events: none;
+  will-change: transform;
 }
 .okl-cross-h {
-  position: absolute; left: 0; right: 0; height: 0;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.55);
   margin-bottom: -0.5px; pointer-events: none;
+  will-change: transform;
 }
 .okl-dot {
   position: absolute;
+  left: 0; bottom: 0;
   width: 0.625rem; height: 0.625rem;
   margin-left: -0.3125rem; margin-bottom: -0.3125rem;
   border: 2px solid #fff;
   border-radius: 50%;
   box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.9);
   pointer-events: none;
+  will-change: transform;
 }
 .okl-ax {
   position: absolute;
@@ -516,7 +495,7 @@ html, body {
   overflow: hidden;                 /* 裁圆角：内部轨道图按圆角显示 */
   cursor: pointer;
 }
-.okl-track-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+.okl-track-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; transform: translateZ(0); }
 .okl-thumb {
   position: absolute;
   top: 50%;
@@ -526,8 +505,9 @@ html, body {
   background: var(--txt);
   border: 1.5px solid #1b1b1b;
   border-radius: 0.125rem;
-  transform: translateY(-50%) rotate(45deg);
+  transform: translateY(-50%) rotate(45deg);   /* JS 会在前面拼 translateX(px) 移动，仍走 GPU 合成 */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   cursor: pointer;
+  will-change: transform;
 }
 

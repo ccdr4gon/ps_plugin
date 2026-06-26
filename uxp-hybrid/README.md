@@ -32,12 +32,13 @@
 ### 🎨 OKLCH 取色（原型，独立并存）
 `prototype/plugin/` 是一个**独立 id**（`com.ccd.colorpalette.oklch`，标签「调色盘 OKLCH 原型」）的并存版本，在色环视图之外新增 **OKLCH** 标签页，便于与正式版对比。OKLCH 是感知均匀色彩空间，改 L/C/H 时色相/明度更稳定，适合配色。
 
+- 顶部两个标签页：**RGB**（色环+方形+RGB/HSV 滑块）/ **OKLCH**。
 - 三张卡片 **Lightness / Chroma / Hue**：各含数字框、**2D 色域切片图**、渐变滑块（菱形游标）。
 - 切片图轴向：L 卡 x=L·y=C（固定 H）；C 卡 x=H·y=C（固定 L）；H 卡 x=H·y=L（固定 C）。点/拖图或滑块即改色，十字+圆点标当前色。
-- 超 sRGB：输出到前景色时**降彩度到 sRGB 边界**（保色相/明度，非逐通道裁剪）；滑块出界段**硬截断为无颜色**。
+- **色域锁（默认开启，右上角「锁」）**：开启时拖图/滑块的点会**贴着色域边界曲线滑、选不出界**（图按"该列最近在域边界"钳、滑块停在当前在域弧）；关闭则可选超 sRGB（输出到前景色时降彩度到边界）。sRGB / P3 可切。
 - RGB 仍是唯一真源，OKLCH 像 HSV 一样作为派生视图；色环取色 / PS 吸管都会实时同步到 OKLCH。
 
-> 切片图/滑块的逐像素渲染走 **UXP Imaging API**（见下方限制表最后一行）——这是 UXP 里把"JS 生成的任意像素"画进面板的官方正路。
+> 切片图/滑块/色环的逐像素渲染都走 **UXP Imaging API**（见下方限制表）——这是 UXP 里把"JS 生成的任意像素"画进面板的官方正路。性能要点：色域图始终高清 640×240（下采样抗锯齿）、拖动 70ms 节流；**游标用 `transform` 走 GPU 合成层**（不重栅格化大图，根治拖动抖动/卡顿）。
 
 ---
 
@@ -55,13 +56,14 @@
 ### UXP CSS / 渲染限制（已踩，别再试）
 | 想做的 | UXP 不支持 / 表现 | 解法 |
 |---|---|---|
-| 色环渐变 | `conic-gradient` 不支持；`canvas` 能渲染但**闪烁卡顿** | **高清 PNG 降采样**（`assets/hue-ring.png`，代码生成见 `probe/GenRing.cs`） |
+| 色环渐变 | `conic-gradient` 不支持；`canvas` 能渲染但**闪烁卡顿** | 正式版用**高清 PNG 降采样**；OKLCH 原型改为 **JS 逐像素 + Imaging API 程序化生成**（无 PNG 资源，几何与游标精确对齐）。PNG 留作兜底 |
+| 拖动时游标牵连大图重栅格化（抖动/卡顿） | 游标用 `left/top`(布局属性)移动 → 每帧重绘整块、重栅格化色环/色域图 | 游标改 **`transform: translate` + `will-change`（独立 GPU 合成层）** → 移动游标=纯 GPU 重合成，不重绘大图 |
 | 滑块三角游标 | CSS `border` 拼三角不渲染 | 用 ▲ 字形（`&#9650;`） |
 | 步进器 −/+ 按钮 | 原生 `<button>` 带默认圆形焦点环、裁切内容 | 改用 `<div>` 做按钮 |
 | 透明棋盘格 | 多层 `linear-gradient` 棋盘错乱 | 平铺 PNG（`assets/checker.png`） |
 | 数字输入框 | `<input>` 不认 `var()`/`transparent` 背景，会露黑底 | 用字面色值，边框/背景做在 input 自身 |
 | 数字显示 | `el.textContent = 0`（数字 0，falsy）会"0/空"闪 | 一律 `String()` 包裹再写，且只在值真变时写 |
-| 2D 色域图（OKLCH 切片） | 无 WebGL；`canvas` 2D 实时重绘闪烁；`createLinearGradient/clearRect` 在 Win 坏 | **JS 逐像素算 RGBA → `imaging.createImageDataFromBuffer` → `new ImageBlob(buf,imageData)` + `URL.createObjectURL` → `<img src>`**（无损静态图，无闪烁）；base64-jpeg 走 `imaging.encodeImageData` 兜底。只在依赖分量变化时重画；拖动用低分辨率、松手换高分辨率（下采样＝抗锯齿）。`require("photoshop").imaging` |
+| 2D 色域图（OKLCH 切片） | 无 WebGL；`canvas` 2D 实时重绘闪烁；`createLinearGradient/clearRect` 在 Win 坏 | **JS 逐像素算 RGBA → `imaging.createImageDataFromBuffer` → `new ImageBlob(buf,imageData)` + `URL.createObjectURL` → `<img src>`**（无损静态图，无闪烁）；base64-jpeg 走 `imaging.encodeImageData` 兜底。只在依赖分量变化时重画；逐像素渲染用「每列预算 cos/sin + OKLab→sRGB 查表」优化（~8× 提速），全程高分辨率下采样＝抗锯齿。`require("photoshop").imaging` |
 
 ### 性能（取色卡顿的真因与对策）
 - **Alt 菜单模式（最隐蔽的真凶）**：Windows 中「按下并松开 Alt」会激活窗口菜单栏，进入模态 menu loop，节流 UXP 面板 → 取色卡。**对策**：取色期间 addon `breakMenu()` 注入无害保留键（VK_NONAME），打破"Alt 按松之间无其他键"的菜单激活条件。

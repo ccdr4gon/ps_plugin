@@ -76,7 +76,7 @@ const hueMarker = document.getElementById("hueMarker");
 const svMarker = document.getElementById("svMarker");
 
 // 几何比例（相对色环直径 S）：环带 外径0.475 内径0.44；方形 0.62 使四角刚好贴住环内圈(~1px)
-const FR = { rOuter: 0.475, rInner: 0.44, sqSize: 0.62 };
+const FR = { rOuter: 0.475, rInner: 0.44, sqSize: 0.615 };   // 方形 0.615：四角与环内圈相切(0.62 时角会戳进环带 AA 内缘 ~0.6px)
 // G = 当前实际几何（像素），由 computeGeom() 按色环实际渲染尺寸算出
 const G = { S: 220, cx: 110, cy: 110, rOuter: 104, rInner: 97, rMid: 100, sqSize: 120, sqLeft: 50, sqTop: 50 };
 
@@ -90,12 +90,66 @@ function computeGeom() {
   picker.style.height = S + "px";                            // 保持正方形
   G.S = S; G.cx = S / 2; G.cy = S / 2;
   G.rOuter = S * FR.rOuter; G.rInner = S * FR.rInner; G.rMid = (G.rInner + G.rOuter) / 2;
-  G.sqSize = S * FR.sqSize; G.sqLeft = (S - G.sqSize) / 2; G.sqTop = G.sqLeft;
+  G.sqSize = Math.round(S * FR.sqSize); G.sqLeft = Math.round((S - G.sqSize) / 2); G.sqTop = G.sqLeft;   // 取整：方块边缘对齐像素网格，重绘不抖
 
   svSquare.style.left = G.sqLeft + "px";
   svSquare.style.top = G.sqTop + "px";
   svSquare.style.width = G.sqSize + "px";
   svSquare.style.height = G.sqSize + "px";
+
+  // 整数居中（消除「特定尺寸才抖」+「拖动时变大」的根因）：margin:0 auto 在某些面板宽会得半像素左边距，
+  // #wheel 及内部环/方块/游标整体落在半像素网格 → 重绘时 1px 闪。改用「整数左边距」把 #wheel 钉到像素网格。
+  // 关键：不用 transform/translateZ —— 合成层在拖动(持续重绘)时被 GPU 单独栅格化、空闲时合并，会产生 ~1px
+  // 尺寸差（正是"拖动圆环变大、松手恢复"）；纯整数 margin 无合成层，任何状态下尺寸一致。
+  const contW = (picker.parentElement || appEl).getBoundingClientRect().width;
+  picker.style.marginLeft = Math.max(0, Math.round((contW - S) / 2)) + "px";
+
+  renderHueRing();   // 色环改用 Imaging 程序化绘制（替 PNG）：尺寸跨档时按需重画
+}
+
+/* ---------- 色环：Imaging 程序化绘制（替静态 PNG） ----------
+ * 不透明 RGBA：环带=HSV 纯色（内外边 coverage 抗锯齿），环外/角落=面板底色 #383838。
+ * 中心由 SV 方块覆盖、四角与面板同色 → 无需 alpha 透明，规避 UXP alpha 渲染的不确定性。
+ * hue 用 handleRing/renderPicker 同一公式（h=0 在正上、顺时针）→ 与游标天然对齐（PNG 若有偏差反被纠正）。
+ * 复用 paintImg（含 ImageBlob 优先 + 竞态/泄漏防护）。无 PS 时不动 <img>，保留 HTML 里的 PNG 兜底。 */
+const HRBG = [0x38, 0x38, 0x38];                  // 面板底色 var(--bg)
+const ringSlot = { img: null, _url: null, _rtoken: 0, _px: -1 };
+function ringBuffer(px) {
+  const buf = new Uint8Array(px * px * 4);
+  const c = px / 2, rOut = px * FR.rOuter, rIn = px * FR.rInner, aa = Math.max(1, px * 0.004);
+  let idx = 0;
+  for (let y = 0; y < px; y++) {
+    const dy = y - c + 0.5;
+    for (let x = 0; x < px; x++) {
+      const dx = x - c + 0.5;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      const cov = clamp((r - (rIn - aa)) / aa, 0, 1) * clamp(((rOut + aa) - r) / aa, 0, 1);   // 环带内=1，内外边 aa 像素渐隐抗锯齿
+      if (cov <= 0) { buf[idx] = HRBG[0]; buf[idx + 1] = HRBG[1]; buf[idx + 2] = HRBG[2]; }
+      else {
+        const ang = Math.atan2(dy, dx) * 180 / Math.PI;           // 0=右，顺时针(y 向下)为正
+        const o = hsvToRgb((ang + 90 + 360) % 360, 100, 100);     // h=0 在正上，与 handleRing/游标同公式
+        buf[idx] = Math.round(HRBG[0] * (1 - cov) + o.r * cov);
+        buf[idx + 1] = Math.round(HRBG[1] * (1 - cov) + o.g * cov);
+        buf[idx + 2] = Math.round(HRBG[2] * (1 - cov) + o.b * cov);
+      }
+      buf[idx + 3] = 255;
+      idx += 4;
+    }
+  }
+  return buf;
+}
+function renderHueRing() {
+  if (!ringSlot.img) ringSlot.img = hueRing;
+  if (!PS || !PS.imaging || !ringSlot.img) return;                // 无 PS/Imaging → 保留 HTML 里的 PNG 兜底
+  // 抗锯齿：按设备像素 2× 超采样生成，<img> 干净 2:1 下采样 → 平滑边缘（叠加 ringBuffer 的 coverage 解析 AA）。
+  // 注：拖动抖动的真因是"游标 left/top 重绘牵连色环重栅格"，已由「游标改 transform + 独立合成层」根治，与此处分辨率无关；
+  // 色环只在尺寸变化时栅格化一次、拖动期间不重绘，故放心超采样换平滑，不会再抖。整数比(2:1)避免重采样发虚；过大退 1:1。
+  const N = Math.round(G.S * (window.devicePixelRatio || 1));     // 目标设备像素边长
+  const px = (N > 0 && N * 2 <= 2048) ? N * 2 : Math.max(64, N);  // 2× 超采样（干净 2:1 下采样）；过大退 1:1
+  if (px === ringSlot._px) return;                                // 尺寸未变 → 复用（拖动选色期间 G.S 恒定 → 不重画）
+  ringSlot._px = px;
+  const tok = ++ringSlot._rtoken;
+  paintImg(ringSlot, ringBuffer(px), px, px, tok).catch(() => { ringSlot._px = -1; });   // 失败→允许重试，PNG 仍在
 }
 
 // 色环改用 PNG（assets/hue-ring.png）：canvas 在 UXP 会闪烁卡顿，PNG 静态图最稳
@@ -106,11 +160,12 @@ let curScale = 1;
 const appEl = document.getElementById("app");
 function applyScale() {
   const w = appEl.getBoundingClientRect().width;
-  if (!w) return;
+  if (!w) return false;
   const s = clamp(w / 300, 0.85, 1.7);
-  if (Math.abs(s - curScale) < 0.01) return;
+  if (Math.abs(s - curScale) < 0.01) return false;
   curScale = s;
   document.documentElement.style.fontSize = (16 * s).toFixed(2) + "px";
+  return true;   // 缩放变了：rem 重排会移动 #wheel → 调用方需重算/重新像素吸附
 }
 
 let lastHue = -1;   // 缓存：SV 方块底色只在 hue 真变时重绘（大方块整体重绘最贵）
@@ -121,16 +176,13 @@ function renderPicker() {
     svSquare.style.backgroundColor = rgbStr(pure.r, pure.g, pure.b);
   }
   // 色环游标位置：依赖几何 G + hue，必须每次按当前 G 算（几何变了 hue 没变时也要重定位，否则首帧错位卡死）
+  // 游标用 transform 移动（非 left/top）：transform 是合成层属性，移动游标=纯 GPU 重合成，不触发 #wheel 重绘，
+  // 故色环 <img> 不被重栅格化 → 彻底消除拖动时圆环"变大/抖动"。取整 → 整数像素，无亚像素游移。
   const a = (state.h - 90) * Math.PI / 180;
-  const hml = (G.cx + G.rMid * Math.cos(a)) + "px";
-  const hmt = (G.cy + G.rMid * Math.sin(a)) + "px";
-  if (hueMarker._l !== hml) { hueMarker.style.left = hml; hueMarker._l = hml; }   // 没变不写，省开销
-  if (hueMarker._t !== hmt) { hueMarker.style.top = hmt; hueMarker._t = hmt; }
-  // 方块游标位置：同理依赖几何
-  const svl = (G.sqLeft + state.s / 100 * G.sqSize) + "px";
-  const svt = (G.sqTop + (1 - state.v / 100) * G.sqSize) + "px";
-  if (svMarker._l !== svl) { svMarker.style.left = svl; svMarker._l = svl; }
-  if (svMarker._t !== svt) { svMarker.style.top = svt; svMarker._t = svt; }
+  const htf = "translate(" + Math.round(G.cx + G.rMid * Math.cos(a)) + "px," + Math.round(G.cy + G.rMid * Math.sin(a)) + "px)";
+  if (hueMarker._tf !== htf) { hueMarker.style.transform = htf; hueMarker._tf = htf; }   // 没变不写，省开销
+  const stf = "translate(" + Math.round(G.sqLeft + state.s / 100 * G.sqSize) + "px," + Math.round(G.sqTop + (1 - state.v / 100) * G.sqSize) + "px)";
+  if (svMarker._tf !== stf) { svMarker.style.transform = stf; svMarker._tf = stf; }
 }
 
 function getPos(e) { const r = picker.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -480,7 +532,7 @@ function rafLoop() {
     // 真正的面板缩放会持续多帧、宽度稳定 → 仍会通过（延迟一拍 ~160ms，无感），故不破坏响应式缩放。
     if (w === _lastGeomW) {
       if (w > 80 && Math.abs(w - G.S) >= 2) { computeGeom(); render(); }
-      applyScale();
+      if (applyScale()) computeGeom();   // 缩放变了 → rem 重排移动了 #wheel → 重算并重新像素吸附（防特定尺寸抖动复现）
     }
     _lastGeomW = w;
   }
@@ -516,6 +568,9 @@ let gamut = "srgb";                         // 当前色域：srgb | p3
 
 function srgbToLinear(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
 function linearToSrgb(x) { return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; }
+// 线性 sRGB(0..1) → 8bit sRGB 查表（4096 档，误差 ≤1 LSB）：色域图逐像素渲染借此避开每像素 Math.pow（~8× 提速）。
+const SRGB8 = (function () { const t = new Uint8Array(4096); for (let i = 0; i < 4096; i++) t[i] = clamp(Math.round(linearToSrgb(i / 4095) * 255), 0, 255); return t; })();
+function enc8(x) { return x <= 0 ? SRGB8[0] : x >= 1 ? SRGB8[4095] : SRGB8[(x * 4095 + 0.5) | 0]; }
 
 // OKLab(a,b) → 线性 sRGB（Björn Ottosson 矩阵）
 function oklchToLinear(L, C, H) {
@@ -554,9 +609,18 @@ function oklchToRgb(L, C, H) {              // 直转 sRGB 0..255（逐通道裁
 }
 // 提交/预览输出：PS 前景色只能 sRGB。超 sRGB 时「降彩度到边界」(忠实保色相/明度)再转，
 // 而非逐通道裁剪(会扭曲色相)。域内时降彩度为 no-op，等价直转。
+// 缓存：同一 (L,C,H,gamut) 在一次 editOklch 里被 applyOklchToRgb / oklchOwnsRgb / renderOklchReadout 重复调用，
+// 各算一遍 maxChroma(13 次二分)很贵 → 按量化键缓存结果 + 是否在 sRGB 内(_outInSrgb，供读数复用)。
+let _outKey = "", _outR = 0, _outG = 0, _outB = 0, _outInSrgb = true;
 function oklchToRgbOut(L, C, H) {
-  if (!oklchInGamut(L, C, H, "srgb")) C = maxChroma(L, H, "srgb");
-  return oklchToRgb(L, C, H);
+  const key = L.toFixed(5) + "," + C.toFixed(5) + "," + H.toFixed(4) + ":" + gamut;
+  if (key !== _outKey) {
+    _outKey = key;
+    _outInSrgb = oklchInGamut(L, C, H, "srgb");
+    const o = oklchToRgb(L, _outInSrgb ? C : maxChroma(L, H, "srgb"), H);
+    _outR = o.r; _outG = o.g; _outB = o.b;
+  }
+  return { r: _outR, g: _outG, b: _outB };
 }
 function rgbToOklch(r, g, b) {
   const lr = srgbToLinear(r), lg = srgbToLinear(g), lb = srgbToLinear(b);
@@ -601,18 +665,104 @@ const OKDEF = {
        disp: () => ostate.h, set: v => { ostate.h = ((v % 360) + 360) % 360; },
        xKey: "h", yKey: "l", xLabel: "H", yLabel: "L" }      // 图: x=H y=L  (固定 C)
 };
-const OKW = 640, OKH = 240;                 // 稳定态高分辨率：缩到面板宽 → 平滑下采样＝抗锯齿（静止细看时）
-const OKWLO = 256, OKHLO = 96;              // 拖动态低分辨率：同步快、不卡游标（运动中锯齿不易察觉，松手即换高清）
+const OKW = 640, OKH = 240;                 // 色域图分辨率：始终高清（缩到面板宽 → 平滑下采样＝抗锯齿）；拖动成本靠节流控制
 const TKW = 512, TKH = 10;                  // 滑块轨道图分辨率（很小；逐像素硬截断出界段，无渐变过渡）
 const TRACK_OUT = 0x2a;                     // 轨道出界填充（中性暗灰＝"无颜色"，与色域内实色硬交界）
 const ok = {};                              // 每张卡片的 DOM 引用 + 缓存
 let odrag = null;
 function fmt(v, dec) { return dec ? (+v.toFixed(dec)).toString() : String(Math.round(v)); }
 
-// 设分量（来自图表/滑块/数字框）；axes=要改的分量数组
-function editOklch(parts) {
+// 缓存色域图/轨道的像素尺寸（三卡同尺寸，量一张即可）：十字/圆点/游标用 transform px 定位需要它。
+// 尺寸只随面板缩放变 → 拖动/取色期间不变；在「非拖动渲染」(force/resize) 与「拖动起点」刷新即可，避免每帧 getBoundingClientRect 强制重排。
+let okCW = 0, okCH = 0, okTW = 0;
+function measureOkl() {
+  const E = ok.l; if (!E || !E.chart) return;
+  // 轨道宽用「滑块容器」(.okl-slider，无边框) 而非 .okl-track(有 1px 边框 + border-box → 窄 2px)：
+  // 游标 offset parent 是 .okl-slider，拖动 fromSlider 也按其全宽算 → 用滑块宽才与游标/光标一致。
+  const slider = E.track && E.track.parentElement;
+  const w = E.chart.clientWidth, h = E.chart.clientHeight, tw = slider ? slider.clientWidth : 0;
+  if (w > 0) okCW = w; if (h > 0) okCH = h; if (tw > 0) okTW = tw;
+}
+
+let gamutLock = true;                        // 色域锁：默认开启。开启后拖动停在当前色域边界，无法选出界色
+let oklLockEl = null;
+function clampGamutLock() {                   // 锁定时把 C 钳到 maxChroma(L,H,当前色域)，使选色不超出
+  if (!gamutLock) return;
+  const mc = maxChroma(ostate.l, ostate.h, gamut);
+  if (ostate.c > mc) ostate.c = mc;
+}
+function updateLockBtn() {
+  if (!oklLockEl) return;
+  oklLockEl.textContent = "锁";                        // UXP 不渲染 emoji → 用汉字"锁"；锁定态由高亮(.locked)区分
+  oklLockEl.classList.toggle("locked", gamutLock);
+  oklLockEl.title = gamutLock
+    ? "色域已锁定（" + (gamut === "p3" ? "P3" : "sRGB") + "）：拖动会停在色域边界、选不出界色 · 点击解锁"
+    : "点击锁定色域：锁上后拖动停在色域边界、无法选超出当前色域的颜色";
+}
+function toggleLock() {
+  gamutLock = !gamutLock;
+  if (gamutLock) { clampGamutLock(); applyOklchToRgb(); pushColor(); }   // 锁定瞬间：把当前选色收进色域并应用
+  updateLockBtn();
+  renderOklch(true);
+}
+
+// 把分量 k 设到 newVal；锁定时从旧值(域内)沿程扫到新值，停在「第一次离开色域」处 → k 卡在当前在域弧边界，其余分量不动。
+// 不跨出界空档跳（中等彩度下 hue/L 的在域区是多段弧 ####..####，跳会让人觉得"没锁住"）。
+function scanClampGamut(k, newVal) {
+  const get = () => k === "l" ? ostate.l : k === "c" ? ostate.c : ostate.h;
+  const setN = v => { if (k === "l") ostate.l = v; else if (k === "c") ostate.c = v; else ostate.h = v; };
+  const oldN = get();
+  OKDEF[k].set(newVal);
+  const newN = get();
+  if (newN === oldN) return;
+  const inAt = t => { setN(oldN + (newN - oldN) * t); return oklchInGamut(ostate.l, ostate.c, ostate.h); };
+  const N = 24; let firstOut = -1;
+  for (let i = 1; i <= N; i++) { if (!inAt(i / N)) { firstOut = i; break; } }
+  if (firstOut < 0) { setN(newN); return; }                                // 全程在域内 → 接受
+  let inT = (firstOut - 1) / N, outT = firstOut / N;
+  for (let i = 0; i < 16; i++) { const m = (inT + outT) / 2; if (inAt(m)) inT = m; else outT = m; }
+  setN(oldN + (newN - oldN) * inT);                                        // 停在边界域内侧
+}
+// 图表用：把 y 轴分量(yk)钳到「当前 x+固定分量 下、离 targetVal 最近的在域 y」→ 点贴着色域曲线滑，上下左右都不越界。返回是否找到在域 y。
+function clampToGamutY(yk, targetVal) {
+  const get = () => yk === "l" ? ostate.l : yk === "c" ? ostate.c : ostate.h;
+  const setN = v => { if (yk === "l") ostate.l = v; else if (yk === "c") ostate.c = v; else ostate.h = v; };
+  OKDEF[yk].set(targetVal);
+  if (oklchInGamut(ostate.l, ostate.c, ostate.h)) return true;             // 目标就在域内
+  const tN = get(), ymax = yk === "c" ? CMAX : yk === "l" ? 1 : 360, STEP = ymax / 140;
+  for (let s = 1; s <= 140; s++) {                                         // 从目标向两侧扫，找最近在域 y（沿边界拖时通常 1~2 步就命中）
+    for (const cand of [tN - s * STEP, tN + s * STEP]) {
+      if (cand < 0 || cand > ymax) continue;
+      setN(cand);
+      if (oklchInGamut(ostate.l, ostate.c, ostate.h)) {                    // [cand 在域, tN 出界] 二分细化边界
+        let inV = cand, outV = tN;
+        for (let i = 0; i < 16; i++) { const m = (inV + outV) / 2; setN(m); if (oklchInGamut(ostate.l, ostate.c, ostate.h)) inV = m; else outV = m; }
+        setN(inV); return true;
+      }
+    }
+  }
+  return false;                                                            // 该 x 整列无在域 y
+}
+// 设分量。锁定时确保选色不出界，且「停在边界」而非降彩度：
+//  · 滑块/输入/步进(单分量)：该分量停在当前在域弧边界，其余不动；
+//  · 图表(双分量，传卡片 d)：x 轴照拖，y 轴(上下拖的那个)停在边界 → 三张图的点都停在色域边缘。
+//    关键：y 轴用 d.yKey（L卡/C卡=彩度、H卡=明度）——之前一律降彩度，对 H 卡(y轴是明度)错成"L越界、C变灰"。
+function editOklch(parts, d) {
   oklchEditing = true;
-  for (const k in parts) OKDEF[k].set(parts[k]);
+  const keys = Object.keys(parts);
+  if (!gamutLock) {
+    for (const k in parts) OKDEF[k].set(parts[k]);
+  } else if (keys.length === 1) {
+    scanClampGamut(keys[0], parts[keys[0]]);
+  } else if (d) {
+    // 图表：x 轴照拖；y 轴钳到「该 x 下离目标最近的在域边界」→ 点沿色域曲线滑，上下左右都不越界。
+    const xSet = v => { if (d.xKey === "l") ostate.l = v; else if (d.xKey === "c") ostate.c = v; else ostate.h = v; };
+    const oldX = d.xKey === "l" ? ostate.l : d.xKey === "c" ? ostate.c : ostate.h;
+    OKDEF[d.xKey].set(parts[d.xKey]);
+    if (!clampToGamutY(d.yKey, parts[d.yKey])) { xSet(oldX); clampToGamutY(d.yKey, parts[d.yKey]); }   // 该 x 整列无在域 → 撤回 x，在旧 x 下钳 y
+  } else {
+    for (const k in parts) OKDEF[k].set(parts[k]); clampGamutLock();       // 兜底
+  }
   applyOklchToRgb(); render();
 }
 function commitOklch() { oklchEditing = false; pushColor(); }
@@ -665,9 +815,9 @@ function buildOklchUI() {
       const parts = {};
       parts[d.xKey] = axisFromT(d.xKey, tx);
       parts[d.yKey] = axisFromT(d.yKey, ty);
-      editOklch(parts);
+      editOklch(parts, d);                            // 传卡片 d → 锁定时按 y 轴(d.yKey)停边界
     };
-    chart.addEventListener("pointerdown", e => { odrag = { kind: "chart", fromChart }; fromChart(e); });
+    chart.addEventListener("pointerdown", e => { odrag = { kind: "chart", fromChart }; measureOkl(); fromChart(e); });
 
     // —— 滑块拖动：改本卡片分量 ——
     const fromSlider = clientX => {
@@ -675,8 +825,8 @@ function buildOklchUI() {
       const t = clamp((clientX - r.left) / r.width, 0, 1);
       const p = {}; p[ch] = d.min + t * (d.max - d.min); editOklch(p);
     };
-    E.track.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; fromSlider(e.clientX); });
-    E.thumb.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; fromSlider(e.clientX); });
+    E.track.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX); });
+    E.thumb.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX); });
 
     // —— 数字框 / 步进 ——
     E.input.addEventListener("change", () => {
@@ -694,12 +844,16 @@ function buildOklchUI() {
       gamut = s.dataset.gamut;
       document.querySelectorAll("#oklGamutSeg .okl-seg").forEach(x => x.classList.toggle("active", x.dataset.gamut === gamut));
       for (const k in ok) { ok[k].chartKey = ""; ok[k].trackKey = ""; }   // 失效缓存
+      if (gamutLock) { clampGamutLock(); applyOklchToRgb(); pushColor(); }   // 锁定下换色域 → 按新色域重新收彩度
+      updateLockBtn();                                                       // 锁标题里的色域名更新
       renderOklch(true);
     });
   });
 
-  document.getElementById("oklApply").addEventListener("click", pushColor);
-  oklSwatchEl.addEventListener("click", pushColor);
+  oklLockEl = document.getElementById("oklLock");
+  if (oklLockEl) oklLockEl.addEventListener("click", toggleLock);
+  updateLockBtn();
+  oklSwatchEl.addEventListener("click", pushColor);   // 应用到前景色（取代原 ▶ 键；编辑时也会自动应用）
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
   oklchBuilt = true;
   syncOklchFromRgb();
@@ -716,18 +870,39 @@ function axisFromT(k, t) { return k === "l" ? t * 100 : k === "h" ? t * 360 : t 
 /* ---------- 2D 色域切片：JS 逐像素算 RGBA → UXP Imaging API → <img>（官方支持·无 canvas·无闪烁·像素级边界） ----------
  * 每张图只依赖「固定分量」：L卡固定H、C卡固定L、H卡固定C。轴向严格对齐 OKDEF.xKey/yKey，
  * 故十字/圆点(用 axisT(xKey/yKey) 定位)天然落在正确像素上。出界像素填底色 #1b1b1b。 */
+/* 色域切片像素（性能热点：拖动每帧重建数十万像素）。语义等价于 oklchInGamut + oklchToRgb，但三处提速：
+ *   ① 每列预算 cos/sin(H)（H 仅随列变或恒定）→ 三角调用从 W·H 次降到 W 次；
+ *   ② OKLab→线性 矩阵内联、单次计算（不再 oklchInGamut/oklchToRgb 各算一遍 oklchToLinear）；
+ *   ③ 线性→sRGB 走 SRGB8 查表（免每像素 3 次 Math.pow）。
+ * 矩阵常量与 oklchToLinear / linSrgbToLinP3 完全一致；已用 scratchpad/verify-fastbuf.js 全网格校验
+ * （24.5 万样本：色域判定零差异、RGB ≤1 LSB）。实测 640×240 由 ~7.6ms 降到 ~0.9ms（8.7×）。 */
 function chartBuffer(ch, W, H) {
   const buf = new Uint8Array(W * H * 4);
+  const isP3 = gamut === "p3", e = 0.0006;
+  const cH = new Float64Array(W), sH = new Float64Array(W);     // 每列 cos/sin(H)
+  for (let col = 0; col < W; col++) { const Hd = (ch === "l") ? ostate.h : (col / (W - 1)) * 360; const r = Hd * Math.PI / 180; cH[col] = Math.cos(r); sH[col] = Math.sin(r); }
+  const Lfix = ostate.l, Cfix = ostate.c;
   let idx = 0;
   for (let row = 0; row < H; row++) {
     const ty = 1 - row / (H - 1);            // row0=顶=ty1；与十字 CSS bottom% 定位一致(底=ty0)
+    const Cy = ty * CMAX;
     for (let col = 0; col < W; col++) {
-      const tx = col / (W - 1);
-      let L, C, Hh;
-      if (ch === "l")      { L = tx;        C = ty * CMAX; Hh = ostate.h; }   // x=L y=C 固定H
-      else if (ch === "c") { Hh = tx * 360;  C = ty * CMAX; L = ostate.l; }    // x=H y=C 固定L
-      else                 { Hh = tx * 360;  L = ty;        C = ostate.c; }    // x=H y=L 固定C
-      if (oklchInGamut(L, C, Hh)) { const o = oklchToRgb(L, C, Hh); buf[idx] = o.r; buf[idx + 1] = o.g; buf[idx + 2] = o.b; }
+      let L, C;
+      if (ch === "l")      { L = col / (W - 1); C = Cy; }   // x=L y=C 固定H
+      else if (ch === "c") { L = Lfix;          C = Cy; }   // x=H y=C 固定L
+      else                 { L = ty;            C = Cfix; } // x=H y=L 固定C
+      const aa = C * cH[col], bb = C * sH[col];
+      const l_ = L + 0.3963377774 * aa + 0.2158037573 * bb;
+      const m_ = L - 0.1055613458 * aa - 0.0638541728 * bb;
+      const s_ = L - 0.0894841775 * aa - 1.2914855480 * bb;
+      const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+      const lr =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+      const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+      const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+      let inG;
+      if (isP3) { const pr = 0.82246197 * lr + 0.17753803 * lg, pg = 0.03319420 * lr + 0.96680580 * lg, pb = 0.01708263 * lr + 0.07239744 * lg + 0.91051993 * lb; inG = pr >= -e && pr <= 1 + e && pg >= -e && pg <= 1 + e && pb >= -e && pb <= 1 + e; }
+      else inG = lr >= -e && lr <= 1 + e && lg >= -e && lg <= 1 + e && lb >= -e && lb <= 1 + e;
+      if (inG) { buf[idx] = enc8(lr); buf[idx + 1] = enc8(lg); buf[idx + 2] = enc8(lb); }
       else { buf[idx] = 0x1b; buf[idx + 1] = 0x1b; buf[idx + 2] = 0x1b; }
       buf[idx + 3] = 255;
       idx += 4;
@@ -775,17 +950,16 @@ function paintImg(slot, buf, W, H, tok) {
 function renderChartImg(ch, force) {
   if (!PS || !PS.imaging || !oklchBuilt) return;
   const E = ok[ch];
-  // 缓存键：只依赖固定分量 + 色域 + 分辨率档。L卡固定H(量化 0.1°)；C卡固定L、H卡固定C(量化 1e-4)。
-  // 自适应分辨率：稳定态高清(抗锯齿)，拖动态低清(同步快、不卡游标，松手 force→高清补齐)。
+  // 缓存键 = 内容（固定分量 + 色域）。L卡固定H(量化 0.1°)；C卡固定L、H卡固定C(量化 1e-4)。
+  // 你正在拖的那张图：两轴=另两分量 → 自己固定分量不变 → key 不变 → 跳过重建；只有内容真变的另两张图才重画。
+  // 始终高清(640×240) → 三张图都无锯齿；拖动成本靠 70ms 节流(~14fps 背景重建)控制，游标走 transform 仍每帧顺滑。
   const fixed = ch === "l" ? ostate.h : ch === "c" ? ostate.l : ostate.c;
-  const hi = force || !odrag;
-  const key = gamut + ":" + fixed.toFixed(ch === "l" ? 1 : 4) + ":" + (hi ? "h" : "l");
-  if (key === E.chartKey) return;            // 命中缓存即跳过（key 完整刻画输入 → 同 key 必同像素）
-  if (!force && odrag) { const now = Date.now(); if (now - (E._chartT || 0) < 40) return; E._chartT = now; }
+  const key = gamut + ":" + fixed.toFixed(ch === "l" ? 1 : 4);
+  if (key === E.chartKey) return;
+  if (!force && odrag) { const now = Date.now(); if (now - (E._chartT || 0) < 70) return; E._chartT = now; }   // 拖动节流 ~14fps
   E.chartKey = key;
-  const W = hi ? OKW : OKWLO, H = hi ? OKH : OKHLO;
   const tok = ++E._rtoken;                    // 单调令牌（见 paintImg）
-  paintImg(E, chartBuffer(ch, W, H), W, H, tok).catch(() => { if (E._rtoken === tok) E.chartKey = ""; });   // 仅当前请求失败才清键
+  paintImg(E, chartBuffer(ch, OKW, OKH), OKW, OKH, tok).catch(() => { if (E._rtoken === tok) E.chartKey = ""; });
 }
 function renderTrackImg(ch, force) {
   if (!PS || !PS.imaging || !oklchBuilt) return;
@@ -804,21 +978,22 @@ function renderTrackImg(ch, force) {
 function renderCard(ch, force) {
   const E = ok[ch], d = OKDEF[ch];
   renderChartImg(ch, force);
-  // 十字线 + 圆点（按图表两轴定位）
-  const xt = axisT(d.xKey), yt = axisT(d.yKey);
-  setStyle(E.crossV, "left", (xt * 100) + "%");
-  setStyle(E.crossH, "bottom", (yt * 100) + "%");
-  setStyle(E.dot, "left", (xt * 100) + "%");
-  setStyle(E.dot, "bottom", (yt * 100) + "%");
-  // 滑块轨道（Imaging 逐像素：出界硬截断，无渐变过渡）
   renderTrackImg(ch, force);
-  // 滑块游标
-  const lt = clamp((d.disp() - d.min) / (d.max - d.min), 0, 1) * 100 + "%";
-  if (E.thumb._l !== lt) { E.thumb.style.left = lt; E.thumb._l = lt; }
-  // 数字框
+  positionOklMarkers(E, d);
+}
+// 十字/圆点/滑块游标：用 transform(px) 定位＝纯 GPU 合成，移动它们不重绘 → 不再每帧重栅格化色域图/轨道图（OKLCH 卡顿主因）。
+// px 取自缓存的图/轨道尺寸(okCW/okCH/okTW)；取整避免 1px 模糊。CSS 已把它们锚到 left:0/bottom:0、且各自 will-change:transform 自成层。
+function positionOklMarkers(E, d) {
+  const xt = axisT(d.xKey), yt = axisT(d.yKey);
+  const xp = Math.round(xt * okCW), yp = Math.round(yt * okCH);   // yp = 距底部像素（配 CSS bottom:0 锚点，translateY 取负＝上移）
+  setTf(E.crossV, "translateX(" + xp + "px)");                    // 竖线只需横向平移
+  setTf(E.crossH, "translateY(" + (-yp) + "px)");                 // 横线只需纵向平移（从底部上移 yp）
+  setTf(E.dot, "translate(" + xp + "px," + (-yp) + "px)");
+  const tp = Math.round(clamp((d.disp() - d.min) / (d.max - d.min), 0, 1) * okTW);
+  setTf(E.thumb, "translateX(" + tp + "px) translateY(-50%) rotate(45deg)");   // 保留菱形的 translateY(-50%) rotate(45deg)
   if (document.activeElement !== E.input) { const nv = fmt(d.disp(), d.dec); if (E.input.value !== nv) E.input.value = nv; }
 }
-function setStyle(el, prop, val) { if (el["_" + prop] !== val) { el.style[prop] = val; el["_" + prop] = val; } }
+function setTf(el, tf) { if (el._tf !== tf) { el.style.transform = tf; el._tf = tf; } }
 
 let oklSwatchEl, oklCssEl, oklHexEl, oklGamutEl;
 function renderOklchReadout() {
@@ -831,31 +1006,23 @@ function renderOklchReadout() {
   const hex = "#" + [o.r, o.g, o.b].map(n => n.toString(16).padStart(2, "0").toUpperCase()).join("");
   if (oklHexEl.textContent !== hex) oklHexEl.textContent = hex;
   // 输出只能 sRGB：标签据「是否超 sRGB」给真话。超 sRGB(但在所选 P3 内) → 提示已降彩度输出。
-  const inSrgb = oklchInGamut(ostate.l, ostate.c, ostate.h, "srgb");
-  const inSel = oklchInGamut(ostate.l, ostate.c, ostate.h);
+  // 复用 oklchToRgbOut(上一行)已算的 _outInSrgb，省一次 oklchInGamut；inSel 仅在超 sRGB 且 P3 模式才真算。
+  const inSrgb = _outInSrgb;
+  const inSel = inSrgb ? true : (gamut === "srgb" ? false : oklchInGamut(ostate.l, ostate.c, ostate.h));
   const gname = gamut === "p3" ? "P3" : "sRGB";
   const gt = inSrgb ? "sRGB 内" : (inSel ? "超 sRGB · 降彩度输出" : "超 " + gname);
   if (oklGamutEl.textContent !== gt) { oklGamutEl.textContent = gt; oklGamutEl.className = "okl-gamut" + (inSrgb ? "" : " out"); }
 }
-// 取色高频（OKLCH 视图激活时的屏幕取色）：只动十字/游标/数字/读数，跳过图表与轨道渐变重建
+// 取色高频（OKLCH 视图激活时的屏幕取色）：只动十字/游标/数字/读数，跳过图表与轨道重建（尺寸用切到本视图时的缓存）
 function renderOklchFast() {
   if (!oklchBuilt || document.getElementById("viewOklch").hidden) return;
-  for (const ch of ["l", "c", "h"]) {
-    const E = ok[ch], d = OKDEF[ch];
-    const xt = axisT(d.xKey), yt = axisT(d.yKey);
-    setStyle(E.crossV, "left", (xt * 100) + "%");
-    setStyle(E.crossH, "bottom", (yt * 100) + "%");
-    setStyle(E.dot, "left", (xt * 100) + "%");
-    setStyle(E.dot, "bottom", (yt * 100) + "%");
-    const lt = clamp((d.disp() - d.min) / (d.max - d.min), 0, 1) * 100 + "%";
-    if (E.thumb._l !== lt) { E.thumb.style.left = lt; E.thumb._l = lt; }
-    if (document.activeElement !== E.input) { const nv = fmt(d.disp(), d.dec); if (E.input.value !== nv) E.input.value = nv; }
-  }
+  for (const ch of ["l", "c", "h"]) positionOklMarkers(ok[ch], OKDEF[ch]);
   renderOklchReadout();
 }
 function renderOklch(force) {
   if (!oklchBuilt) return;
   if (!force && document.getElementById("viewOklch").hidden) return;   // 隐藏时不做重活
+  if (!odrag) measureOkl();   // 非拖动时刷新尺寸缓存（force/resize 渲染）；拖动期间尺寸不变，用 pointerdown 的缓存
   renderCard("l", force); renderCard("c", force); renderCard("h", force); renderOklchReadout();
 }
 
