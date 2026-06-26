@@ -747,13 +747,16 @@ function clampToGamutY(yk, targetVal) {
 //  · 滑块/输入/步进(单分量)：该分量停在当前在域弧边界，其余不动；
 //  · 图表(双分量，传卡片 d)：x 轴照拖，y 轴(上下拖的那个)停在边界 → 三张图的点都停在色域边缘。
 //    关键：y 轴用 d.yKey（L卡/C卡=彩度、H卡=明度）——之前一律降彩度，对 H 卡(y轴是明度)错成"L越界、C变灰"。
-function editOklch(parts, d) {
+function editOklch(parts, d, jump) {
   oklchEditing = true;
   const keys = Object.keys(parts);
   if (!gamutLock) {
     for (const k in parts) OKDEF[k].set(parts[k]);
   } else if (keys.length === 1) {
-    scanClampGamut(keys[0], parts[keys[0]]);
+    // 点击 / 数字输入(jump=true)：直接跳到「离目标最近的在域值」——可跨过出界空档(hue 断层)落到另一段在域弧上。
+    // 拖动(jump 不传)：沿当前在域弧滑、停在边界、不跨空档跳（连续拖动跨空档会让人觉得"没锁住"）。
+    if (jump) { if (!clampToGamutY(keys[0], parts[keys[0]])) scanClampGamut(keys[0], parts[keys[0]]); }
+    else scanClampGamut(keys[0], parts[keys[0]]);
   } else if (d) {
     // 图表：x 轴照拖；y 轴钳到「该 x 下离目标最近的在域边界」→ 点沿色域曲线滑，上下左右都不越界。
     const xSet = v => { if (d.xKey === "l") ostate.l = v; else if (d.xKey === "c") ostate.c = v; else ostate.h = v; };
@@ -820,18 +823,19 @@ function buildOklchUI() {
     chart.addEventListener("pointerdown", e => { odrag = { kind: "chart", fromChart }; measureOkl(); fromChart(e); });
 
     // —— 滑块拖动：改本卡片分量 ——
-    const fromSlider = clientX => {
+    const fromSlider = (clientX, jump) => {
       const r = E.track.getBoundingClientRect();
       const t = clamp((clientX - r.left) / r.width, 0, 1);
-      const p = {}; p[ch] = d.min + t * (d.max - d.min); editOklch(p);
+      const p = {}; p[ch] = d.min + t * (d.max - d.min); editOklch(p, null, jump);
     };
-    E.track.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX); });
-    E.thumb.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX); });
+    // pointerdown 是离散点击 → jump=true（可跨 hue 断层落到另一段在域弧）；pointermove 拖动 → 不传 jump，沿边界滑不跳
+    E.track.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX, true); });
+    E.thumb.addEventListener("pointerdown", e => { odrag = { kind: "slider", fromSlider }; measureOkl(); fromSlider(e.clientX, true); });
 
     // —— 数字框 / 步进 ——
     E.input.addEventListener("change", () => {
       let v = parseFloat(E.input.value); if (isNaN(v)) v = d.disp();
-      const p = {}; p[ch] = v; editOklch(p); commitOklch(); E.input.value = fmt(d.disp(), d.dec);
+      const p = {}; p[ch] = v; editOklch(p, null, true); commitOklch(); E.input.value = fmt(d.disp(), d.dec);   // 输入是离散设值 → jump，可跨断层
     });
     card.querySelector(".step-up").addEventListener("click", () => { const p = {}; p[ch] = d.disp() + d.step; editOklch(p); commitOklch(); });
     card.querySelector(".step-down").addEventListener("click", () => { const p = {}; p[ch] = d.disp() - d.step; editOklch(p); commitOklch(); });
